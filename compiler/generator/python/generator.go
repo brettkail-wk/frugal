@@ -296,6 +296,9 @@ func (g *Generator) GenerateEnum(enum *parser.Enum) error {
 		if value.Comment != nil {
 			comment = append(append(comment, value.Name+": "+value.Comment[0]), value.Comment[1:]...)
 		}
+		deprecationValue, deprecatd := comment.Annotations.Deprecated()
+		if deprecated {
+		}
 	}
 	if len(comment) != 0 {
 		contents += g.generateDocString(comment, tab)
