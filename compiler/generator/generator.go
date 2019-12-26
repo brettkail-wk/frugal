@@ -16,6 +16,7 @@ package generator
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Workiva/frugal/compiler/parser"
 )
@@ -96,6 +97,13 @@ func ValidateOption(lang, option string) bool {
 	}
 	_, ok = options[option]
 	return ok
+}
+
+type Config struct {
+	Now            time.Time
+	GlobalOut      string
+	TopicDelimiter string
+	Options        Options
 }
 
 // ProgramGenerator generates source code in a specified language for a Frugal

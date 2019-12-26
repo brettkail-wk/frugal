@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Workiva/frugal/compiler/globals"
 	"github.com/Workiva/frugal/compiler/parser"
 )
 
@@ -238,7 +237,7 @@ func (t *TornadoGenerator) GenerateSubscriber(file *os.File, scope *parser.Scope
 	}
 	subscriber += "\n"
 
-	subscriber += tab + fmt.Sprintf("_DELIMITER = '%s'\n\n", globals.TopicDelimiter)
+	subscriber += tab + fmt.Sprintf("_DELIMITER = '%s'\n\n", t.delim)
 
 	subscriber += tab + "def __init__(self, provider, middleware=None):\n"
 	subscriber += t.generateDocString([]string{
@@ -288,7 +287,7 @@ func (t *TornadoGenerator) generateSubscribeMethod(scope *parser.Scope, op *pars
 	method += "\n"
 
 	method += tabtab + fmt.Sprintf("op = '%s'\n", op.Name)
-	method += tabtab + fmt.Sprintf("prefix = %s\n", generatePrefixStringTemplate(scope))
+	method += tabtab + fmt.Sprintf("prefix = %s\n", t.generatePrefixStringTemplate(scope))
 	method += tabtab + fmt.Sprintf("topic = '{}%s{}{}'.format(prefix, self._DELIMITER, op)\n\n", scope.Name)
 
 	method += tabtab + "transport, protocol_factory = self._provider.new_subscriber()\n"

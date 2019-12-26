@@ -11,13 +11,17 @@ type Generator struct {
 }
 
 // NewGenerator creates a new Go LanguageGenerator.
-func NewGenerator(options map[string]string) generator.LanguageGenerator {
+func NewGenerator(config *generator.Config) generator.LanguageGenerator {
+	options := config.Options
 	options["slim"] = "true"
 	options["frugal_import"] = "github.com/Workiva/frugal/lib/gopherjs/frugal"
 	options["thrift_import"] = "github.com/Workiva/frugal/lib/gopherjs/thrift"
 	return &Generator{
 		Generator: &golang.Generator{
-			BaseGenerator: &generator.BaseGenerator{Options: options},
+			BaseGenerator: &generator.BaseGenerator{
+				Options: options,
+			},
+			Delim: config.TopicDelimiter,
 		},
 	}
 }

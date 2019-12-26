@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Workiva/frugal/compiler/generator"
 	"github.com/Workiva/frugal/compiler/generator/dartlang"
@@ -26,13 +27,11 @@ import (
 	"github.com/Workiva/frugal/compiler/generator/html"
 	"github.com/Workiva/frugal/compiler/generator/java"
 	"github.com/Workiva/frugal/compiler/generator/python"
-	"github.com/Workiva/frugal/compiler/globals"
 	"github.com/Workiva/frugal/compiler/parser"
 )
 
 // Options contains compiler options for code generation.
 type Options struct {
-	File    string // Frugal file to generate
 	Gen     string // Language to generate
 	Out     string // Output location for generated code
 	Delim   string // Token delimiter for scope topics
@@ -41,58 +40,65 @@ type Options struct {
 	Verbose bool   // Verbose mode
 }
 
+type Compiler struct {
+	lang          string
+	langOptions   map[string]string
+	options       Options
+	now           time.Time
+	compiledFiles map[string]*parser.Frugal
+}
+
+func NewCompiler(options Options) (*Compiler, error) {
+	lang, langOptions, err := cleanGenParam(options.Gen)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &Compiler{
+		lang:          lang,
+		langOptions:   langOptions,
+		options:       options,
+		now:           time.Now(),
+		compiledFiles: map[string]*parser.Frugal{},
+	}
+	return c, nil
+}
+
 // Compile parses the Frugal IDL and generates code for it, returning an error
 // if something failed.
-func Compile(options Options) error {
-	var err error
-	defer globals.Reset()
-	globals.TopicDelimiter = options.Delim
-	globals.Gen = options.Gen
-	globals.Out = options.Out
-	globals.DryRun = options.DryRun
-	globals.Recurse = options.Recurse
-	globals.Verbose = options.Verbose
-	globals.FileDir = filepath.Dir(options.File)
-
-	absFile, err := filepath.Abs(options.File)
+func (c *Compiler) Compile(file string) error {
+	absFile, err := filepath.Abs(file)
 	if err != nil {
 		return err
 	}
 
-	frugal, err := parseFrugal(absFile)
+	frugal, err := c.parseFrugal(absFile)
 	if err != nil {
 		return err
 	}
 
-	return generateFrugal(frugal)
+	return c.generateFrugal(frugal)
 }
 
 // parseFrugal parses a frugal file.
-func parseFrugal(file string) (*parser.Frugal, error) {
+func (c *Compiler) parseFrugal(file string) (*parser.Frugal, error) {
 	if !exists(file) {
 		return nil, fmt.Errorf("Frugal file not found: %s\n", file)
 	}
-	logv(fmt.Sprintf("Parsing %s", file))
+	c.logv(fmt.Sprintf("Parsing %s", file))
 	return parser.ParseFrugal(file)
 }
 
 // generateFrugal generates code for a frugal struct.
-func generateFrugal(f *parser.Frugal) error {
-	var gen = globals.Gen
-
-	lang, options, err := cleanGenParam(gen)
-	if err != nil {
-		return err
-	}
-
+func (c *Compiler) generateFrugal(f *parser.Frugal) error {
 	// Resolve Frugal generator.
-	g, err := getProgramGenerator(lang, options)
+	g, err := c.getProgramGenerator()
 	if err != nil {
 		return err
 	}
 
 	// The parsed frugal contains everything needed to generate
-	if err := generateFrugalRec(f, g, true, lang); err != nil {
+	if err := c.generateFrugalRec(f, g, true); err != nil {
 		return err
 	}
 
@@ -101,14 +107,14 @@ func generateFrugal(f *parser.Frugal) error {
 
 // generateFrugalRec generates code for a frugal struct, recursively generating
 // code for includes
-func generateFrugalRec(f *parser.Frugal, g generator.ProgramGenerator, generate bool, lang string) error {
-	if _, ok := globals.CompiledFiles[f.File]; ok {
+func (c *Compiler) generateFrugalRec(f *parser.Frugal, g generator.ProgramGenerator, generate bool) error {
+	if _, ok := c.compiledFiles[f.File]; ok {
 		// Already generated this file
 		return nil
 	}
-	globals.CompiledFiles[f.File] = f
+	c.compiledFiles[f.File] = f
 
-	out := globals.Out
+	out := c.options.Out
 	if out == "" {
 		out = g.DefaultOutputDir()
 	}
@@ -117,8 +123,8 @@ func generateFrugalRec(f *parser.Frugal, g generator.ProgramGenerator, generate 
 		return err
 	}
 
-	logv(fmt.Sprintf("Generating \"%s\" Frugal code for %s", lang, f.File))
-	if globals.DryRun || !generate {
+	c.logv(fmt.Sprintf("Generating \"%s\" Frugal code for %s", c.lang, f.File))
+	if c.options.DryRun || !generate {
 		return nil
 	}
 
@@ -134,7 +140,7 @@ func generateFrugalRec(f *parser.Frugal, g generator.ProgramGenerator, generate 
 			continue
 		}
 		inclFrugal := f.ParsedIncludes[include.Name]
-		if err := generateFrugalRec(inclFrugal, g, globals.Recurse, lang); err != nil {
+		if err := c.generateFrugalRec(inclFrugal, g, c.options.Recurse); err != nil {
 			return err
 		}
 	}
@@ -144,11 +150,20 @@ func generateFrugalRec(f *parser.Frugal, g generator.ProgramGenerator, generate 
 
 // getProgramGenerator resolves the ProgramGenerator for the given language. It
 // returns an error if the language is not supported.
-func getProgramGenerator(lang string, options map[string]string) (generator.ProgramGenerator, error) {
+func (c *Compiler) getProgramGenerator() (generator.ProgramGenerator, error) {
+	options := c.langOptions
+	config := &generator.Config{
+		Now:            c.now,
+		GlobalOut:      c.options.Out,
+		TopicDelimiter: c.options.Delim,
+		Options:        options,
+	}
+
 	var g generator.ProgramGenerator
+	lang := c.lang
 	switch lang {
 	case "dart":
-		g = generator.NewProgramGenerator(dartlang.NewGenerator(options), false)
+		g = generator.NewProgramGenerator(dartlang.NewGenerator(config), false)
 	case "go":
 		// Make sure the package prefix ends with a "/"
 		if package_prefix, ok := options["package_prefix"]; ok {
@@ -157,16 +172,16 @@ func getProgramGenerator(lang string, options map[string]string) (generator.Prog
 			}
 		}
 
-		g = generator.NewProgramGenerator(golang.NewGenerator(options), false)
+		g = generator.NewProgramGenerator(golang.NewGenerator(config), false)
 	case "gopherjs":
 		if pkg := options["package_prefix"]; pkg != "" && !strings.HasSuffix(pkg, "/") {
 			options["package_prefix"] += "/" // Make sure the package prefix ends with a "/"
 		}
-		g = generator.NewProgramGenerator(gopherjs.NewGenerator(options), false)
+		g = generator.NewProgramGenerator(gopherjs.NewGenerator(config), false)
 	case "java":
-		g = generator.NewProgramGenerator(java.NewGenerator(options), true)
+		g = generator.NewProgramGenerator(java.NewGenerator(config), true)
 	case "py":
-		g = generator.NewProgramGenerator(python.NewGenerator(options), true)
+		g = generator.NewProgramGenerator(python.NewGenerator(config), true)
 	case "html":
 		g = html.NewGenerator(options)
 	default:
@@ -212,8 +227,8 @@ func cleanGenParam(gen string) (lang string, options map[string]string, err erro
 }
 
 // logv prints the message if in verbose mode.
-func logv(msg string) {
-	if globals.Verbose {
+func (c *Compiler) logv(msg string) {
+	if c.options.Verbose {
 		fmt.Println(msg)
 	}
 }

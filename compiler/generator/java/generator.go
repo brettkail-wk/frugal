@@ -47,13 +47,15 @@ const (
 type Generator struct {
 	*generator.BaseGenerator
 	time      time.Time
+	delim     string
 	outputDir string
 }
 
-func NewGenerator(options map[string]string) generator.LanguageGenerator {
+func NewGenerator(config *generator.Config) generator.LanguageGenerator {
 	return &Generator{
-		&generator.BaseGenerator{Options: options},
-		globals.Now,
+		&generator.BaseGenerator{Options: config.Options},
+		config.Now,
+		config.TopicDelimiter,
 		"",
 	}
 }
@@ -2416,7 +2418,7 @@ func (g *Generator) generatePublisherClient(scope *parser.Scope, indent string) 
 		contents += g.GenerateBlockComment(scope.Comment, indent)
 	}
 	contents += indent + "public static class Client implements Iface {\n"
-	contents += indent + tab + fmt.Sprintf("private static final String DELIMITER = \"%s\";\n\n", globals.TopicDelimiter)
+	contents += indent + tab + fmt.Sprintf("private static final String DELIMITER = \"%s\";\n\n", g.delim)
 	contents += indent + tab + "private final Iface target;\n"
 	contents += indent + tab + "private final Iface proxy;\n\n"
 
@@ -2488,7 +2490,7 @@ func (g *Generator) generatePublisherClient(scope *parser.Scope, indent string) 
 		}
 
 		contents += indent + tabtabtab + fmt.Sprintf("String op = \"%s\";\n", op.Name)
-		contents += indent + tabtabtab + fmt.Sprintf("String prefix = %s;\n", generatePrefixStringTemplate(scope))
+		contents += indent + tabtabtab + fmt.Sprintf("String prefix = %s;\n", g.generatePrefixStringTemplate(scope))
 		contents += indent + tabtabtab + "String topic = String.format(\"%s" + strings.Title(scope.Name) + "%s%s\", prefix, DELIMITER, op);\n"
 		contents += indent + tabtabtab + "TMemoryOutputBuffer memoryBuffer = new TMemoryOutputBuffer(transport.getPublishSizeLimit());\n"
 		contents += indent + tabtabtab + "FProtocol oprot = protocolFactory.getProtocol(memoryBuffer);\n"
@@ -2506,16 +2508,16 @@ func (g *Generator) generatePublisherClient(scope *parser.Scope, indent string) 
 	return contents
 }
 
-func generatePrefixStringTemplate(scope *parser.Scope) string {
+func (g *Generator) generatePrefixStringTemplate(scope *parser.Scope) string {
 	if len(scope.Prefix.Variables) == 0 {
 		if scope.Prefix.String == "" {
 			return `""`
 		}
-		return fmt.Sprintf(`"%s%s"`, scope.Prefix.String, globals.TopicDelimiter)
+		return fmt.Sprintf(`"%s%s"`, scope.Prefix.String, g.delim)
 	}
 	template := "String.format(\""
 	template += scope.Prefix.Template("%s")
-	template += globals.TopicDelimiter + "\", "
+	template += g.delim + "\", "
 	prefix := ""
 	for _, variable := range scope.Prefix.Variables {
 		template += prefix + variable
@@ -2609,7 +2611,7 @@ func (g *Generator) generateSubscriberClient(scope *parser.Scope, indent string)
 	}
 	contents += indent + "public static class Client implements Iface, IfaceThrowable {\n"
 
-	contents += indent + tab + fmt.Sprintf("private static final String DELIMITER = \"%s\";\n", globals.TopicDelimiter)
+	contents += indent + tab + fmt.Sprintf("private static final String DELIMITER = \"%s\";\n", g.delim)
 	contents += indent + tab + "private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);\n\n"
 
 	contents += indent + tab + "private final FScopeProvider provider;\n"
@@ -2637,7 +2639,7 @@ func (g *Generator) generateSubscriberClient(scope *parser.Scope, indent string)
 				contents += indent + tab + fmt.Sprintf("public FSubscription subscribe%s(%sfinal %sHandler handler) throws TException {\n", op.Name, args, op.Name)
 			}
 			contents += indent + tabtab + fmt.Sprintf("final String op = \"%s\";\n", op.Name)
-			contents += indent + tabtab + fmt.Sprintf("String prefix = %s;\n", generatePrefixStringTemplate(scope))
+			contents += indent + tabtab + fmt.Sprintf("String prefix = %s;\n", g.generatePrefixStringTemplate(scope))
 			contents += indent + tabtab + "final String topic = String.format(\"%s" + strings.Title(scope.Name) + "%s%s\", prefix, DELIMITER, op);\n"
 			contents += indent + tabtab + "final FScopeProvider.Subscriber subscriber = provider.buildSubscriber();\n"
 

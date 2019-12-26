@@ -50,13 +50,15 @@ const (
 // Generator implements the LanguageGenerator interface for Dart.
 type Generator struct {
 	*generator.BaseGenerator
+	delim     string
 	outputDir string
 }
 
 // NewGenerator creates a new Dart LanguageGenerator.
-func NewGenerator(options map[string]string) generator.LanguageGenerator {
+func NewGenerator(config *generator.Config) generator.LanguageGenerator {
 	return &Generator{
-		BaseGenerator: &generator.BaseGenerator{Options: options},
+		BaseGenerator: &generator.BaseGenerator{Options: config.Options},
+		delim:         config.TopicDelimiter,
 		outputDir:     "",
 	}
 }
@@ -1426,7 +1428,7 @@ func (g *Generator) GenerateScopeImports(file *os.File, s *parser.Scope) error {
 
 // GenerateConstants generates any static constants.
 func (g *Generator) GenerateConstants(file *os.File, name string) error {
-	constants := fmt.Sprintf("const String delimiter = '%s';", globals.TopicDelimiter)
+	constants := fmt.Sprintf("const String delimiter = '%s';", g.delim)
 	_, err := file.WriteString(constants)
 	return err
 }
@@ -1491,7 +1493,7 @@ func (g *Generator) GeneratePublisher(file *os.File, scope *parser.Scope) error 
 		}
 
 		publishers += tabtab + fmt.Sprintf("var op = \"%s\";\n", op.Name)
-		publishers += tabtab + fmt.Sprintf("var prefix = \"%s\";\n", generatePrefixStringTemplate(scope))
+		publishers += tabtab + fmt.Sprintf("var prefix = \"%s\";\n", g.generatePrefixStringTemplate(scope))
 		publishers += tabtab + "var topic = \"${prefix}" + strings.Title(scope.Name) + "${delimiter}${op}\";\n"
 		publishers += tabtab + "var memoryBuffer = new frugal.TMemoryOutputBuffer(transport.publishSizeLimit);\n"
 		publishers += tabtab + "var oprot = protocolFactory.getProtocol(memoryBuffer);\n"
@@ -1512,13 +1514,13 @@ func (g *Generator) GeneratePublisher(file *os.File, scope *parser.Scope) error 
 	return err
 }
 
-func generatePrefixStringTemplate(scope *parser.Scope) string {
+func (g *Generator) generatePrefixStringTemplate(scope *parser.Scope) string {
 	if scope.Prefix.String == "" {
 		return ""
 	}
 	template := ""
 	template += scope.Prefix.Template("%s")
-	template += globals.TopicDelimiter
+	template += g.delim
 	if len(scope.Prefix.Variables) == 0 {
 		return template
 	}
@@ -1562,7 +1564,7 @@ func (g *Generator) GenerateSubscriber(file *os.File, scope *parser.Scope) error
 		subscribers += fmt.Sprintf(tab+"Future<frugal.FSubscription> subscribe%s(%sdynamic on%s(frugal.FContext ctx, %s req)) async {\n",
 			op.Name, args, op.Type.ParamName(), g.getDartTypeFromThriftType(op.Type))
 		subscribers += fmt.Sprintf(tabtab+"var op = \"%s\";\n", op.Name)
-		subscribers += fmt.Sprintf(tabtab+"var prefix = \"%s\";\n", generatePrefixStringTemplate(scope))
+		subscribers += fmt.Sprintf(tabtab+"var prefix = \"%s\";\n", g.generatePrefixStringTemplate(scope))
 		subscribers += tabtab + "var topic = \"${prefix}" + strings.Title(scope.Name) + "${delimiter}${op}\";\n"
 		subscribers += tabtab + "var transport = provider.subscriberTransportFactory.getTransport();\n"
 		subscribers += fmt.Sprintf(tabtab+"await transport.subscribe(topic, _recv%s(op, provider.protocolFactory, on%s));\n",
@@ -1729,7 +1731,7 @@ func (g *Generator) generateClientMethod(service *parser.Service, method *parser
 
 	innerTypeCast := ""
 	if method.ReturnType != nil {
-	    innerTypeCast = fmt.Sprintf(".then((value) => value as %s)", g.getDartTypeFromThriftType(method.ReturnType))
+		innerTypeCast = fmt.Sprintf(".then((value) => value as %s)", g.getDartTypeFromThriftType(method.ReturnType))
 	}
 
 	contents += fmt.Sprintf(tabtab+"return this._methods['%s']([ctx%s])%s;\n",

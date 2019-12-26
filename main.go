@@ -108,24 +108,31 @@ func main() {
 			Verbose: verbose,
 		}
 
+		comp, err := compiler.NewCompiler(options)
+		if err != nil {
+			fmt.Printf("Failed to parse generation options:\n\t%s\n", err.Error())
+			os.Exit(1)
+		}
+
+		var file string
+
 		// Handle panics for graceful error messages.
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Failed to generate %s:\n\t%s\n", options.File, r)
+				fmt.Printf("Failed to generate %s:\n\t%s\n", file, r)
 				os.Exit(1)
 			}
 		}()
 
-		var err error
 		auditor := parser.NewAuditor()
-		for _, options.File = range c.Args() {
+		for _, file = range c.Args() {
 			if audit == "" {
-				err = compiler.Compile(options)
+				err = comp.Compile(file)
 			} else {
-				err = auditor.Audit(audit, options.File)
+				err = auditor.Audit(audit, file)
 			}
 			if err != nil {
-				fmt.Printf("Failed to generate %s:\n\t%s\n", options.File, err.Error())
+				fmt.Printf("Failed to generate %s:\n\t%s\n", file, err.Error())
 				os.Exit(1)
 			}
 		}

@@ -46,13 +46,14 @@ const (
 // Generator implements the LanguageGenerator interface for Go.
 type Generator struct {
 	*generator.BaseGenerator
+	Delim             string
 	generateConstants bool
 	typesFile         *os.File
 }
 
 // NewGenerator creates a new Go LanguageGenerator.
-func NewGenerator(options map[string]string) generator.LanguageGenerator {
-	return &Generator{&generator.BaseGenerator{Options: options}, true, nil}
+func NewGenerator(config *generator.Config) generator.LanguageGenerator {
+	return &Generator{&generator.BaseGenerator{Options: config.Options}, config.TopicDelimiter, true, nil}
 }
 
 // Suppress deprecated API usage warning logging
@@ -1306,7 +1307,7 @@ func (g *Generator) GenerateConstants(file *os.File, name string) error {
 	if !g.generateConstants {
 		return nil
 	}
-	constants := fmt.Sprintf("const delimiter = \"%s\"", globals.TopicDelimiter)
+	constants := fmt.Sprintf("const delimiter = \"%s\"", g.Delim)
 	_, err := file.WriteString(constants)
 	if err != nil {
 		return err
@@ -1427,7 +1428,7 @@ func (g *Generator) generateInternalPublishMethod(scope *parser.Scope, op *parse
 	}
 
 	publisher += fmt.Sprintf("\top := \"%s\"\n", op.Name)
-	publisher += fmt.Sprintf("\tprefix := %s\n", generatePrefixStringTemplate(scope))
+	publisher += fmt.Sprintf("\tprefix := %s\n", g.generatePrefixStringTemplate(scope))
 	publisher += "\ttopic := fmt.Sprintf(\"%s" + scopeTitle + "%s%s\", prefix, delimiter, op)\n"
 	publisher += "\tbuffer := frugal.NewTMemoryOutputBuffer(p.transport.GetPublishSizeLimit())\n"
 	publisher += "\toprot := p.protocolFactory.GetProtocol(buffer)\n"
@@ -1449,16 +1450,16 @@ func (g *Generator) generateInternalPublishMethod(scope *parser.Scope, op *parse
 	return publisher
 }
 
-func generatePrefixStringTemplate(scope *parser.Scope) string {
+func (g *Generator) generatePrefixStringTemplate(scope *parser.Scope) string {
 	if len(scope.Prefix.Variables) == 0 {
 		if scope.Prefix.String == "" {
 			return `""`
 		}
-		return fmt.Sprintf(`"%s%s"`, scope.Prefix.String, globals.TopicDelimiter)
+		return fmt.Sprintf(`"%s%s"`, scope.Prefix.String, g.Delim)
 	}
 	template := "fmt.Sprintf(\""
 	template += scope.Prefix.Template("%s")
-	template += globals.TopicDelimiter + "\", "
+	template += g.Delim + "\", "
 	prefix := ""
 	for _, variable := range scope.Prefix.Variables {
 		template += prefix + variable
@@ -1562,7 +1563,7 @@ func (g *Generator) generateSubscribeMethod(scope *parser.Scope, op *parser.Oper
 	subscriber += fmt.Sprintf("func (l *%sSubscriber) Subscribe%sErrorable(%shandler func(frugal.FContext, %s) error) (*frugal.FSubscription, error) {\n",
 		scopeLower, op.Name, args, g.getGoTypeFromThriftType(op.Type))
 	subscriber += fmt.Sprintf("\top := \"%s\"\n", op.Name)
-	subscriber += fmt.Sprintf("\tprefix := %s\n", generatePrefixStringTemplate(scope))
+	subscriber += fmt.Sprintf("\tprefix := %s\n", g.generatePrefixStringTemplate(scope))
 	subscriber += "\ttopic := fmt.Sprintf(\"%s" + scopeTitle + "%s%s\", prefix, delimiter, op)\n"
 	subscriber += "\ttransport, protocolFactory := l.provider.NewSubscriber()\n"
 	subscriber += fmt.Sprintf("\tcb := l.recv%s(op, protocolFactory, handler)\n", op.Name)

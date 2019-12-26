@@ -54,15 +54,17 @@ type genInfo struct {
 // Generator implements the LanguageGenerator interface for Python.
 type Generator struct {
 	*generator.BaseGenerator
+	globalOut string
+	delim     string
 	outputDir string
 	typesFile *os.File
 	history   map[string][]genInfo
 }
 
 // NewGenerator creates a new Python LanguageGenerator.
-func NewGenerator(options map[string]string) generator.LanguageGenerator {
-	gen := &Generator{&generator.BaseGenerator{Options: options}, "", nil, map[string][]genInfo{}}
-	switch getAsyncOpt(options) {
+func NewGenerator(config *generator.Config) generator.LanguageGenerator {
+	gen := &Generator{&generator.BaseGenerator{Options: config.Options}, config.GlobalOut, config.TopicDelimiter, "", nil, map[string][]genInfo{}}
+	switch getAsyncOpt(config.Options) {
 	case tornado:
 		return &TornadoGenerator{gen}
 	case asyncio:
@@ -78,7 +80,7 @@ func (g *Generator) SetupGenerator(outputDir string) error {
 	// To prevent littering the filesystem with __init__ in every folder between outputDir and the present working
 	// directory, use the relative path between the root output directory and the target outputDir. This creates
 	// __init__ files only in the folders used for frugal generation.
-	outputRoot := globals.Out
+	outputRoot := g.globalOut
 	if outputRoot == "" {
 		outputRoot = g.DefaultOutputDir()
 	}
@@ -955,7 +957,7 @@ func (g *Generator) GeneratePublisher(file *os.File, scope *parser.Scope) error 
 	}
 	publisher += "\n"
 
-	publisher += tab + fmt.Sprintf("_DELIMITER = '%s'\n\n", globals.TopicDelimiter)
+	publisher += tab + fmt.Sprintf("_DELIMITER = '%s'\n\n", g.delim)
 
 	publisher += tab + "def __init__(self, provider, middleware=None):\n"
 	publisher += g.generateDocString([]string{
@@ -1074,7 +1076,7 @@ func (g *Generator) generatePublishMethod(scope *parser.Scope, op *parser.Operat
 		method += fmt.Sprintf(tabtab+"ctx.set_request_header('_topic_%s', %s)\n", prefixVar, prefixVar)
 	}
 	method += tabtab + fmt.Sprintf("op = '%s'\n", op.Name)
-	method += tabtab + fmt.Sprintf("prefix = %s\n", generatePrefixStringTemplate(scope))
+	method += tabtab + fmt.Sprintf("prefix = %s\n", g.generatePrefixStringTemplate(scope))
 	method += tabtab + fmt.Sprintf("topic = '{}%s{}{}'.format(prefix, self._DELIMITER, op)\n", scope.Name)
 	method += tabtab + "buffer = TMemoryOutputBuffer(self._transport.get_publish_size_limit())\n"
 	method += tabtab + "oprot = self._protocol_factory.get_protocol(buffer)\n"
@@ -1094,14 +1096,14 @@ func (g *Generator) generatePublishMethod(scope *parser.Scope, op *parser.Operat
 	return method
 }
 
-func generatePrefixStringTemplate(scope *parser.Scope) string {
+func (g *Generator) generatePrefixStringTemplate(scope *parser.Scope) string {
 	if len(scope.Prefix.Variables) == 0 {
 		if scope.Prefix.String == "" {
 			return "''"
 		}
-		return fmt.Sprintf("'%s%s'", scope.Prefix.String, globals.TopicDelimiter)
+		return fmt.Sprintf("'%s%s'", scope.Prefix.String, g.delim)
 	}
-	template := fmt.Sprintf("'%s%s'.format(", scope.Prefix.Template("{}"), globals.TopicDelimiter)
+	template := fmt.Sprintf("'%s%s'.format(", scope.Prefix.Template("{}"), g.delim)
 	prefix := ""
 	for _, variable := range scope.Prefix.Variables {
 		template += prefix + variable
