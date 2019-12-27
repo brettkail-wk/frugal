@@ -119,7 +119,11 @@ func main() {
 		// Handle panics for graceful error messages.
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Failed to generate %s:\n\t%s\n", file, r)
+				if file == "" {
+					fmt.Printf("Failed to generate:\n\t%s\n", file, r)
+				} else {
+					fmt.Printf("Failed to generate %s:\n\t%s\n", file, r)
+				}
 				os.Exit(1)
 			}
 		}()
@@ -135,6 +139,13 @@ func main() {
 				fmt.Printf("Failed to generate %s:\n\t%s\n", file, err.Error())
 				os.Exit(1)
 			}
+		}
+		file = ""
+
+		err = comp.Close()
+		if err != nil {
+			fmt.Printf("Failed to generate:\n\t%s\n", err.Error())
+			os.Exit(1)
 		}
 
 		return nil

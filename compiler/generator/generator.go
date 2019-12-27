@@ -122,6 +122,15 @@ type ProgramGenerator interface {
 	UseVendor() bool
 }
 
+// ShareableProgramGenerator can be reused to generate source code for multiple
+// top-level Frugal files.
+type ShareableProgramGenerator interface {
+	ProgramGenerator
+
+	// TeardownShared calls SharedLanguageGenerator.TeardownShared if possible
+	TeardownShared() error
+}
+
 // LanguageGenerator generates source code as implemented for specific
 // languages.
 type LanguageGenerator interface {

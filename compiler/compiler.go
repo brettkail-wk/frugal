@@ -46,6 +46,7 @@ type Compiler struct {
 	options       Options
 	now           time.Time
 	compiledFiles map[string]*parser.Frugal
+	sharedGen     generator.ShareableProgramGenerator
 }
 
 func NewCompiler(options Options) (*Compiler, error) {
@@ -151,6 +152,21 @@ func (c *Compiler) generateFrugalRec(f *parser.Frugal, g generator.ProgramGenera
 // getProgramGenerator resolves the ProgramGenerator for the given language. It
 // returns an error if the language is not supported.
 func (c *Compiler) getProgramGenerator() (generator.ProgramGenerator, error) {
+	if c.sharedGen != nil {
+		return c.sharedGen, nil
+	}
+
+	g, err := c.createProgramGenerator()
+	if err == nil {
+		if sg, ok := g.(generator.ShareableProgramGenerator); ok {
+			c.sharedGen = sg
+		}
+	}
+
+	return g, err
+}
+
+func (c *Compiler) createProgramGenerator() (generator.ProgramGenerator, error) {
 	options := c.langOptions
 	config := &generator.Config{
 		Now:            c.now,
@@ -188,6 +204,13 @@ func (c *Compiler) getProgramGenerator() (generator.ProgramGenerator, error) {
 		return nil, fmt.Errorf("Invalid gen value %s", lang)
 	}
 	return g, nil
+}
+
+func (c *Compiler) Close() error {
+	if c.sharedGen != nil {
+		return c.sharedGen.TeardownShared()
+	}
+	return nil
 }
 
 // exists determines if the file at the given path exists.
