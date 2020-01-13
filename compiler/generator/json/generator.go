@@ -124,9 +124,6 @@ type scope struct {
 	Operations map[string]*frugalType `json:"o,omitempty"`
 }
 
-type operation struct {
-}
-
 type method struct {
 	Params  map[int]*field `json:"p,omitempty"`
 	Results map[int]*field `json:"r,omitempty"`
