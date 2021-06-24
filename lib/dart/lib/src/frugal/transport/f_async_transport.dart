@@ -18,14 +18,23 @@ part of frugal.src.frugal;
 /// data and call [handleResponse] when asynchronous responses are received.
 abstract class FAsyncTransport extends FTransport {
   final Logger _log = new Logger('FAsyncTransport');
+  /// Completed with null if service not available.
   Map<int, Completer<Uint8List>> _handlers = {};
 
   /// Instantiate an [FAsyncTransport].
   FAsyncTransport({int requestSizeLimit})
       : super(requestSizeLimit: requestSizeLimit);
 
-  /// Flush the payload to the server. Implementations must be threadsafe.
+  /// Flush the payload to the server.
+  /// Implementations must be threadsafe.
+  /// This method is not called for requests if [flushOp] is overridden.
   Future<Null> flush(Uint8List payload);
+
+  /// Flush a request payload to the server.
+  /// By default, this method calls [flush].
+  Future<Null> flushOp(int opId, Uint8List payload) {
+    flush(payload);
+  }
 
   @override
   Future<Null> oneway(FContext ctx, Uint8List payload) async {
@@ -53,13 +62,17 @@ abstract class FAsyncTransport extends FTransport {
     });
 
     try {
-      await flush(payload);
+      await flushOp(ctx._opId, payload);
       Future<Uint8List> resultFuture =
           resultCompleter.future.timeout(ctx.timeout);
 
       // Bail early if the transport is closed
       Uint8List response =
           await Future.any([resultFuture, closedCompleter.future]);
+      if (response == null) {
+        throw new TTransportError(FrugalTTransportErrorType.SERVICE_NOT_AVAILABLE,
+            "service not available");
+      }
       return new TMemoryTransport.fromUint8List(response);
     } on TimeoutException catch (_) {
       throw new TTransportError(FrugalTTransportErrorType.TIMED_OUT,
@@ -91,6 +104,15 @@ abstract class FAsyncTransport extends FTransport {
       return;
     }
 
+    _handleOpResponse(opId, frame);
+  }
+
+  /// Handles a frugal response for SERVICE_NOT_AVAILABLE.
+  void handleServiceNotAvailable(int opId) {
+    _handleOpResponse(opId, null);
+  }
+
+  void _handleOpResponse(int opId, Uint8List frame) {
     Completer<Uint8List> handler = _handlers[opId];
     if (handler == null) {
       _log.severe("frugal: no handler found for message, dropping message");
