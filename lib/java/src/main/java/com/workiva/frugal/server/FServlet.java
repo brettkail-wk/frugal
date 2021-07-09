@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Base64;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -110,6 +111,7 @@ public class FServlet extends HttpServlet {
     @Override
     public void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         Map<Object, Object> ephemeralProperties = new HashMap<>();
+        ephemeralProperties.put("http_request_headers", new RequestHeaders(req));
         eventHandler.onRequestReceived(ephemeralProperties);
         try {
             process(req, resp, ephemeralProperties);
@@ -194,6 +196,7 @@ public class FServlet extends HttpServlet {
         TMemoryOutputBuffer outTransport = new TMemoryOutputBuffer();
         try {
             FProtocol inProtocol = inProtocolFactory.getProtocol(inTransport);
+            inProtocol.setEphemeralProperties(ephemeralProperties);
             FProtocol outProtocol = outProtocolFactory.getProtocol(outTransport);
             processor.process(inProtocol, outProtocol);
         } catch (RuntimeException e) {
@@ -215,6 +218,25 @@ public class FServlet extends HttpServlet {
             responseLimit = 0;
         }
         return responseLimit;
+    }
+
+    private static class RequestHeaders extends AbstractServletRequestHeaders {
+        private final HttpServletRequest request;
+
+        RequestHeaders(HttpServletRequest request) {
+            this.request = request;
+        }
+
+        @Override
+        protected Enumeration<String> names() {
+            Enumeration<String> n = request.getHeaderNames();
+            return n;
+        }
+
+        @Override
+        protected Enumeration<String> values(String name) {
+            return request.getHeaders(name);
+        }
     }
 
     public static Builder builder() {

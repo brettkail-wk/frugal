@@ -14,6 +14,7 @@
 package com.workiva.frugal.server;
 
 import com.workiva.frugal.processor.FProcessor;
+import com.workiva.frugal.protocol.FProtocol;
 import com.workiva.frugal.protocol.FProtocolFactory;
 import com.workiva.frugal.transport.TMemoryOutputBuffer;
 import io.netty.buffer.ByteBuf;
@@ -23,6 +24,7 @@ import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import org.apache.commons.codec.binary.Base64;
@@ -38,10 +40,15 @@ import java.nio.ByteBuffer;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.AbstractMap;
+import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
 import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_TRANSFER_ENCODING;
@@ -138,6 +145,10 @@ public class FDefaultNettyHttpProcessor implements FNettyHttpProcessor {
      * @throws IOException if the frame is invalid, not conforming to the Frugal protocol
      */
     public ByteBuf processFrame(ByteBuf inputBuffer) throws TException, IOException {
+        return processFrame(null, inputBuffer);
+    }
+
+    private ByteBuf processFrame(HttpRequest request, ByteBuf inputBuffer) throws TException, IOException {
         // Read base64 encoded input
         byte[] encodedBytes = new byte[inputBuffer.readableBytes()];
         inputBuffer.readBytes(encodedBytes);
@@ -161,16 +172,70 @@ public class FDefaultNettyHttpProcessor implements FNettyHttpProcessor {
             );
         }
 
+        Map<Object, Object> ephemeralProperties = new HashMap<>();
+        if (request != null) {
+            ephemeralProperties.put("http_request_headers", new RequestHeaders(request.headers()));
+        }
+
         // Process a frame, exclude frame length (first 4 bytes)
         // TODO: use TByteBuffer that wraps buff once Thrift 0.10.0 is released to avoid this copy.
         byte[] inputFrame = Arrays.copyOfRange(inputBytes, 4, inputBytes.length);
         TTransport inTransport = new TMemoryInputTransport(inputFrame);
         TMemoryOutputBuffer outTransport = new TMemoryOutputBuffer();
-        processor.process(inProtocolFactory.getProtocol(inTransport), outProtocolFactory.getProtocol(outTransport));
+        FProtocol inProtocol = inProtocolFactory.getProtocol(inTransport);
+        inProtocol.setEphemeralProperties(ephemeralProperties);
+        FProtocol outProtocol = outProtocolFactory.getProtocol(outTransport);
+        processor.process(inProtocol, outProtocol);
 
         // Write base64 encoded output
         byte[] outputBytes = Base64.encodeBase64(outTransport.getWriteBytes());
         return Unpooled.copiedBuffer(outputBytes);
+    }
+
+    private static class RequestHeaders extends AbstractMap<String, List<String>> {
+        private final HttpHeaders headers;
+
+        public RequestHeaders(HttpHeaders headers) {
+            this.headers = headers;
+        }
+
+        @Override
+        public List<String> get(Object key) {
+            if (!(key instanceof String)) {
+                return null;
+            }
+
+            List<String> values = headers.getAll((String) key);
+            return values.isEmpty() ? null : values;
+        }
+
+        @Override
+        public Set<Map.Entry<String, List<String>>> entrySet() {
+            return new AbstractSet<Map.Entry<String, List<String>>>() {
+                @Override
+                public Iterator<Map.Entry<String, List<String>>> iterator() {
+                    Set<String> names = headers.names();
+                    Iterator<String> it = names.iterator();
+                    return new Iterator<Map.Entry<String, List<String>>>() {
+                        @Override
+                        public boolean hasNext() {
+                            return it.hasNext();
+                        }
+
+                        @Override
+                        public Map.Entry<String, List<String>> next() {
+                            String name = it.next();
+                            return new SimpleEntry<>(name, get(name));
+                        }
+                    };
+                }
+
+                @Override
+                public int size() {
+                    return headers.size();
+                }
+            };
+        }
     }
 
     private FullHttpResponse newErrorResponse(HttpResponseStatus status, String errorMessage) {
@@ -197,7 +262,9 @@ public class FDefaultNettyHttpProcessor implements FNettyHttpProcessor {
         ByteBuf body = request.content();
         ByteBuf outputBuffer = Unpooled.EMPTY_BUFFER;
         try {
-            outputBuffer = processFrame(body);
+            outputBuffer = getClass() == FDefaultNettyHttpProcessor.class
+                    ? processFrame(request, body)
+                    : processFrame(body);
         } catch (TException e) {
             LOGGER.error("Frugal processor returned unhandled error:", e);
             String errorMessage = "";

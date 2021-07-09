@@ -1,6 +1,7 @@
 package com.workiva.frugal.server;
 
 import com.workiva.frugal.processor.FProcessor;
+import com.workiva.frugal.protocol.FProtocol;
 import com.workiva.frugal.protocol.FProtocolFactory;
 import org.apache.thrift.TException;
 import org.junit.After;
@@ -22,7 +23,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -41,6 +47,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 import static org.mockito.hamcrest.MockitoHamcrest.argThat;
 
 /**
@@ -101,6 +108,7 @@ public class FJakartaServletTest {
 
     private final FProcessor mockProcessor = mock(FProcessor.class);
     private final FProtocolFactory mockProtocolFactory = mock(FProtocolFactory.class);
+    private final FProtocol mockProtocol = mock(FProtocol.class);
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
     private final FServerEventHandler mockEventHandler = mock(FServerEventHandler.class);
     private FJakartaServlet servlet = new FJakartaServlet(mockProcessor, mockProtocolFactory);
@@ -115,6 +123,8 @@ public class FJakartaServletTest {
     public void before() throws Exception {
         doReturn("POST").when(mockRequest).getMethod();
         doReturn("HTTP/1.1").when(mockRequest).getProtocol();
+
+        doReturn(mockProtocol).when(mockProtocolFactory).getProtocol(any());
 
         doReturn(servletOut).when(mockResponse).getOutputStream();
     }
@@ -334,6 +344,11 @@ public class FJakartaServletTest {
     @Test
     public void testOkWithEventHandler() throws Exception {
         setupEventHandler();
+        when(mockRequest.getHeaderNames()).thenAnswer(inv -> Collections.enumeration(Arrays.asList("a", "b")));
+        when(mockRequest.getHeaders(any())).thenAnswer(inv -> Collections.enumeration(Collections.emptyList()));
+        when(mockRequest.getHeaders(eq("a"))).thenAnswer(inv -> Collections.enumeration(Arrays.asList("a1")));
+        when(mockRequest.getHeaders(eq("b"))).thenAnswer(inv -> Collections.enumeration(Arrays.asList("b1", "b2")));
+
         testOk();
 
         InOrder inOrder = inOrder(mockEventHandler, mockProcessor);
@@ -344,6 +359,15 @@ public class FJakartaServletTest {
         inOrder.verify(mockEventHandler).onRequestStarted(argThat(sameInstance(props)));
         inOrder.verify(mockProcessor).process(any(), any());
         inOrder.verify(mockEventHandler).onRequestEnded(argThat(sameInstance(props)));
+
+        @SuppressWarnings("unchecked")
+        Map<String, List<String>> headers = (Map<String, List<String>>) props.get("http_request_headers");
+        Map<String, List<String>> expectedHeaders = new HashMap<>();
+        expectedHeaders.put("a", Arrays.asList("a1"));
+        expectedHeaders.put("b", Arrays.asList("b1", "b2"));
+        assertThat(headers, equalTo(expectedHeaders));
+        assertThat(headers.get(null), nullValue());
+        assertThat(headers.get("doesnotexist"), nullValue());
     }
 
     @Test
